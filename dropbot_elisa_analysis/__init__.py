@@ -21,37 +21,6 @@ import pandas as pd
 ExperimentLogDir = namedtuple('ExperimentLogDir', ['log_dir', 'instrument_id'])
 
 
-# TODO: import this function from dstat_interface.analysis
-def dstat_to_frame(data_path_i):
-    '''
-    Convert DStat text file results to `pandas.DataFrame`.
-
-    Args
-    ----
-
-        data_path_i (str) : Path to DStat results text file.
-
-    Returns
-    -------
-
-        (pandas.DataFrame) : DStat measurements in a table with
-            the column `name` and `current_amps`, indexed by
-            `utc_timestamp` and `time_s`.
-    '''
-    with data_path_i.open('r') as input_i:
-        diff = (dt.datetime.utcnow() - dt.datetime.now())
-        utc_timestamp = arrow.get(input_i.readline().split(' ')[-1]) + diff
-
-    str_data = StringIO.StringIO('\n'.join(l for l in data_path_i.lines()
-                                           if not l.startswith('#')))
-    df_data = pd.read_csv(str_data, sep='\s+', header=None)
-    df_data.rename(columns={0: 'time_s', 1: 'current_amps'}, inplace=True)
-    df_data.insert(0, 'step_label', re.sub(r'-data$', '', data_path_i.namebase))
-    df_data.insert(0, 'utc_timestamp', utc_timestamp.datetime +
-                   df_data.index.map(lambda v: dt.timedelta(seconds=v)))
-    df_data.set_index(['utc_timestamp', 'time_s'], inplace=True)
-    return df_data
-
 def combine_data_from_microdrop_logs(exp_log_paths):
     '''
     Scrape microdrop experiment log directories to generate a
@@ -131,7 +100,7 @@ def combine_data_from_microdrop_logs(exp_log_paths):
             magnet_engaged.append(dx_data['magnet_engaged'])
 
         for file_path in log_dir.files('*Measure*.txt'):
-            df = dstat_to_frame(file_path)
+            df = di.analysis.dstat_to_frame(file_path)
             df['experiment_uuid'] = log.uuid
             df['experiment_id'] = log.experiment_id
             df = df.reset_index().set_index(['utc_timestamp', 'experiment_uuid'])
@@ -191,63 +160,6 @@ def combine_data_from_microdrop_logs(exp_log_paths):
 
             combined_data_df = combined_data_df.append(df)
     return combined_data_df
-
-def create_summary_df(combined_data_df):
-    '''
-    Create a pandas.DataFrame summarizing the experimental data.
-
-    Args
-    ----
-
-        combined_data_df (pandas.DataFrame) : Combined experimental data from
-            a set of experiments.
-
-    Returns
-    -------
-
-        (pandas.DataFrame) : Table with the columns 'experiment_start', 'sample_id',
-            'experiment_uuid', 'step_label', 'current_amps', 'instrument_id',
-            'relative_humidity', 'temperature_celsius', 'experiment_length_min'.
-    '''
-
-    summary_df = pd.DataFrame()
-
-    for (experiment_uuid, step_label, attempt_number), group in combined_data_df.groupby(
-            ['experiment_uuid', 'step_label', 'attempt_number']):
-        group.reset_index()
-        data = group[group['time_s'] > 2].mean().to_dict()
-
-        data['experiment_uuid'] = experiment_uuid
-        data['step_label'] = step_label
-        data['attempt_number'] = attempt_number
-
-        for k in group.columns:
-            if k in data.keys():
-                del data[k]
-
-            if k not in data.keys():
-                data[k] = group[k].values[0]
-
-        summary_df = summary_df.append(pd.DataFrame(data=[data]), ignore_index=True)
-
-    # specify the order of the columns
-    summary_df = summary_df[[
-        'experiment_start',
-        'sample_id',
-        'experiment_uuid',
-        'step_label',
-        'current_amps',
-        'instrument_id',
-        'relative_humidity',
-        'temperature_celsius',
-        'experiment_length_min',
-    ]]
-
-    summary_df.set_index(['experiment_start', 'sample_id', 'experiment_uuid',
-                          'step_label'], inplace=True)
-    summary_df.sort_index(inplace=True)
-    summary_df.reset_index(inplace=True)
-    return summary_df
 
 
 def reduce_microdrop_dstat_data(df_md_dstat, settling_period_s=2., bandwidth=1.):
