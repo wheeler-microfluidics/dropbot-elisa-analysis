@@ -1,19 +1,21 @@
-import time
-import cPickle as pickle
-import re
-import datetime as dt
-import cStringIO as StringIO
-from copy import deepcopy
 from collections import namedtuple
+from copy import deepcopy
+import cPickle as pickle
+import cStringIO as StringIO
+import datetime as dt
+import re
+import time
 
-import arrow
-import matplotlib.pyplot as plt
-import pandas as pd
-import numpy as np
-from path_helpers import path
-import matplotlib.mlab as mlab
 from microdrop.experiment_log import ExperimentLog
 from microdrop.protocol import Protocol
+from path_helpers import path
+import arrow
+import dstat_interface as di
+import dstat_interface.analysis
+import matplotlib.mlab as mlab
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 
 ExperimentLogDir = namedtuple('ExperimentLogDir', ['log_dir', 'instrument_id'])
@@ -241,7 +243,54 @@ def create_summary_df(combined_data_df):
         'experiment_length_min',
     ]]
 
-    summary_df.set_index(['experiment_start', 'sample_id', 'experiment_uuid', 'step_label'], inplace=True)
+    summary_df.set_index(['experiment_start', 'sample_id', 'experiment_uuid',
+                          'step_label'], inplace=True)
     summary_df.sort_index(inplace=True)
     summary_df.reset_index(inplace=True)
     return summary_df
+
+
+def reduce_microdrop_dstat_data(df_md_dstat, settling_period_s=2., bandwidth=1.):
+    '''
+    Reduce measurements for each Microdrop DStat acquisition step in
+    `df_md_dstat` to a single row with an aggregate signal value.
+
+    For continuous detection, the aggregate signal column corresponds to the
+    mean `current_amps`.
+
+    For synchronous detection experiments (i.e., where `target_hz` is greater
+    than 0), the aggregate signal corresponds to the integrated amplitude of
+    the `current_amps` FFT within the bandwidth around target frequency.
+
+    See `dstat_interface.analysis.reduce_microdrop_dstat_data` for more
+    details.
+
+    Args
+    ----
+
+        df_md_dstat (pandas.DataFrame) : Microdrop DStat measurements in a
+            table with at least the columns `experiment_uuid`, `step_number`,
+            `attempt_number`, `target_hz`, `sample_frequency_hz`, `current_amps`,
+            and `time_s`.
+        settling_period_s (float) : Measurement settling period in seconds.
+            Measurements taken before start time will not be included in
+            calculations.
+        bandwidth (float) : Bandwidth (centered at synchronous detection
+            frequency) to integrate within.
+
+    Returns
+    -------
+
+        (pd.DataFrame) : Table containing the columns `experiment_start`,
+            `experiment_length_min`, `sample_id`, `experiment_uuid`,
+            `step_label`, `instrument_name`, `relative_humidity`,
+            `temperature_celsius`, `sample_frequency_hz`, `target_hz`,
+            and `signal` (i.e., the aggregate signal value).
+    '''
+    summary_fields = ['experiment_start', 'experiment_length_min', 'sample_id',
+                      'instrument_name', 'relative_humidity', 'temperature_celsius',
+                      'sample_frequency_hz', 'target_hz']
+    groupby = ['experiment_uuid', 'step_label', 'step_number', 'attempt_number']
+
+    return di.analysis.reduce_dstat_data(df_md_dstat, groupby=groupby,
+                                         summary_fields=summary_fields)
