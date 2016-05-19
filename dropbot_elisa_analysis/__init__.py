@@ -1,7 +1,6 @@
 from collections import namedtuple
 from copy import deepcopy
 import cPickle as pickle
-import cStringIO as StringIO
 import datetime as dt
 import re
 import time
@@ -9,7 +8,6 @@ import time
 from microdrop.experiment_log import ExperimentLog
 from microdrop.protocol import Protocol
 from path_helpers import path
-import arrow
 import dstat_interface as di
 import dstat_interface.analysis
 import matplotlib.mlab as mlab
@@ -53,7 +51,7 @@ def combine_data_from_microdrop_logs(exp_log_paths):
 
         if output_path.isdir():
             for file_path in output_path.files('*.csv'):
-                # skip the calibrator file
+                # skip the calibrator fil
                 if file_path.name == 'calibrator.csv':
                     continue
 
@@ -108,8 +106,10 @@ def combine_data_from_microdrop_logs(exp_log_paths):
             dstat_enabled.append(dx_data['dstat_enabled'])
             magnet_engaged.append(dx_data['magnet_engaged'])
 
+        experiment_df = pd.DataFrame()
         for file_path in log_dir.files('*Measure*.txt'):
             df = di.analysis.dstat_to_frame(file_path)
+            df.rename(columns={'name': 'step_label'}, inplace=True)
             df['experiment_uuid'] = log.uuid
             df['experiment_id'] = log.experiment_id
             df = df.reset_index().set_index(['utc_timestamp', 'experiment_uuid'])
@@ -125,56 +125,70 @@ def combine_data_from_microdrop_logs(exp_log_paths):
             label = match.group('label')
             step_number = step_labels.index(label)
 
+            # get the uuid of the calibrator
+            calibrator_file = output_path / 'calibrator.csv'
+            calibrator_uuid = ''
+            if calibrator_file.isfile():
+                try:
+                    calibrator_df = pd.read_csv(calibrator_file)
+                    calibrator_uuid = calibrator_df[calibrator_df['step_label'] == label] \
+                        ['experiment_uuid'].values[0]
+                except:
+                    print "Couldn't get calibrator uuid."
+
+            df['calibrator_uuid'] = calibrator_uuid
+
             index = 0
             for i in range(attempt + 1):
                 index = step_numbers.index(step_number, index + 1)
-
-            try:
-                metadata = deepcopy(log.metadata['wheelerlab.metadata_plugin'])
-                device_id = metadata.get('device_id', '')
-                sample_id = metadata.get('sample_id', '')
-
-                cre_device_id = re.compile(r'#(?P<batch_id>[a-fA-F0-9]+)'
-                                           r'%(?P<device_id>[a-fA-F0-9]+)$')
-
-                # If `device_id` is in the form '#<batch-id>%<device-id>', extract batch and
-                # device identifiers separately.
-                match = cre_device_id.match(device_id)
-                if match:
-                    metadata['device_id'] = unicode(match.group('device_id'))
-                    metadata[u'batch_id'] = unicode(match.group('batch_id'))
-                else:
-                    metadata['device_id'] = ''
-                    metadata[u'batch_id'] = ''
-
-                df['device_id'] = metadata['device_id']
-                df['batch_id'] = metadata['batch_id']
-                df['sample_id'] = metadata['sample_id']
-            except:
-                df['device_id'] = ''
-                df['batch_id'] = ''
-                df['sample_id'] = ''
-
-            # TODO: get instrument_id from experiment log metadata
-            df['instrument_id'] = instrument_id
 
             df['step_number'] = step_number
             df['attempt_number'] = attempt
             df['temperature_celsius'] = temperature_celsius[index]
             df['relative_humidity'] = relative_humidity[index]
 
-            start_time = log.get('start time')[0]
-            df['experiment_start'] = dt.datetime.fromtimestamp(start_time).isoformat()
-            df['experiment_length_min'] = log.get('time')[-1] / 60
+            experiment_df = experiment_df.append(df)
 
-            if not output_path.isdir():
-                output_path.mkdir()
+        try:
+            metadata = deepcopy(log.metadata['wheelerlab.metadata_plugin'])
+            device_id = metadata.get('device_id', '')
+            sample_id = metadata.get('sample_id', '')
 
-            df.to_csv(output_path /
-                      path('e[%s]-d[%s]-s[%s].csv' % (log.uuid, df['device_id'].values[0],
-                                                      df['sample_id'].values[0])))
+            cre_device_id = re.compile(r'#(?P<batch_id>[a-fA-F0-9]+)'
+                                       r'%(?P<device_id>[a-fA-F0-9]+)$')
 
-            combined_data_df = combined_data_df.append(df)
+            # If `device_id` is in the form '#<batch-id>%<device-id>', extract batch and
+            # device identifiers separately.
+            match = cre_device_id.match(device_id)
+            if match:
+                metadata['device_id'] = unicode(match.group('device_id'))
+                metadata[u'batch_id'] = unicode(match.group('batch_id'))
+            else:
+                metadata['device_id'] = ''
+                metadata[u'batch_id'] = ''
+
+            experiment_df['device_id'] = metadata['device_id']
+            experiment_df['batch_id'] = metadata['batch_id']
+            experiment_df['sample_id'] = metadata['sample_id']
+        except:
+            experiment_df['device_id'] = ''
+            experiment_df['batch_id'] = ''
+            experiment_df['sample_id'] = ''
+
+        # TODO: get instrument_id from experiment log metadata
+        experiment_df['instrument_id'] = instrument_id
+        start_time = log.get('start time')[0]
+        experiment_df['experiment_start'] = dt.datetime.fromtimestamp(start_time).isoformat()
+        experiment_df['experiment_length_min'] = log.get('time')[-1] / 60
+
+        if not output_path.isdir():
+            output_path.mkdir()
+
+        experiment_df.to_csv(output_path / \
+             path('e[%s]-d[%s]-s[%s].csv' % (log.uuid, experiment_df['device_id'].values[0],
+             experiment_df['sample_id'].values[0])))
+
+        combined_data_df = combined_data_df.append(experiment_df)
     return combined_data_df
 
 
@@ -213,11 +227,11 @@ def reduce_microdrop_dstat_data(df_md_dstat, settling_period_s=2., bandwidth=1.)
             `experiment_length_min`, `sample_id`, `experiment_uuid`,
             `step_label`, `instrument_name`, `relative_humidity`,
             `temperature_celsius`, `sample_frequency_hz`, `target_hz`,
-            and `signal` (i.e., the aggregate signal value).
+            'calibrator_uuid', and `signal` (i.e., the aggregate signal value).
     '''
     summary_fields = ['experiment_start', 'experiment_length_min', 'sample_id',
                       'instrument_name', 'relative_humidity', 'temperature_celsius',
-                      'sample_frequency_hz', 'target_hz']
+                      'sample_frequency_hz', 'target_hz', 'calibrator_uuid']
     groupby = ['experiment_uuid', 'step_label', 'step_number', 'attempt_number']
 
     return di.analysis.reduce_dstat_data(df_md_dstat, groupby=groupby,
