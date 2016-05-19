@@ -51,6 +51,25 @@ def dstat_to_frame(data_path_i):
     return df_data
 
 def combine_data_from_microdrop_logs(exp_log_paths):
+    '''
+    Scrape microdrop experiment log directories to generate a
+    `pandas.DataFrame` with the combined experimental data from a
+    set of experiments.
+
+    Args
+    ----
+
+        exp_log_paths (list of ExperimentLogDir named tuples) : Each tuple in
+        the list describes the path to a Microdrop experiment log directory and
+        and instrument_id (optional). If the instrument_id is None, this
+        function will try to extract an instrument_id from the experiment log
+        metadata.
+
+    Returns
+    -------
+
+        (pandas.DataFrame) : Combined experimental data.
+    '''
     combined_data_df = pd.DataFrame()
 
     for log_dir, instrument_id in exp_log_paths:
@@ -156,7 +175,9 @@ def combine_data_from_microdrop_logs(exp_log_paths):
                 df['batch_id'] = ''
                 df['sample_id'] = ''
 
+            # TODO: get instrument_id from experiment log metadata
             df['instrument_id'] = instrument_id
+
             df['step_number'] = step_number
             df['attempt_number'] = attempt
             df['temperature_celsius'] = temperature_celsius[index]
@@ -169,8 +190,24 @@ def combine_data_from_microdrop_logs(exp_log_paths):
             combined_data_df = combined_data_df.append(df)
     return combined_data_df
 
-def create_summary(combined_data_df):
-    # create a summary of the data
+def create_summary_df(combined_data_df):
+    '''
+    Create a pandas.DataFrame summarizing the experimental data.
+
+    Args
+    ----
+
+        combined_data_df (pandas.DataFrame) : Combined experimental data from
+            a set of experiments.
+
+    Returns
+    -------
+
+        (pandas.DataFrame) : Table with the columns 'experiment_start', 'sample_id',
+            'experiment_uuid', 'step_label', 'current_amps', 'instrument_id',
+            'relative_humidity', 'temperature_celsius', 'experiment_length_min'.
+    '''
+
     summary_df = pd.DataFrame()
 
     for (experiment_uuid, step_label, attempt_number), group in combined_data_df.groupby(
