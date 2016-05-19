@@ -1,0 +1,8 @@
+include RELEASE-VERSION
+include version.py
+include pavement.py
+include paver-minilib.zip
+include setup.py
+recursive-include dropbot_elisa_analysis *
+recursive-exclude dropbot_elisa_analysis *~
+recursive-exclude dropbot_elisa_analysis *.pyc
