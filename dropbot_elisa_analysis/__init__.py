@@ -237,7 +237,7 @@ def reduce_microdrop_dstat_data(df_md_dstat, settling_period_s=2., bandwidth=1.)
 
 
 def microdrop_dstat_summary_table(df_md_dstat, calibrator_csv_path=None,
-                                  **kwargs):
+                                  numeric=False, **kwargs):
     '''
     Args
     ----
@@ -247,6 +247,9 @@ def microdrop_dstat_summary_table(df_md_dstat, calibrator_csv_path=None,
             `attempt_number`, `target_hz`, `sample_frequency_hz`, `current_amps`,
             and `time_s`.
         calibrator_csv_path (str) : Path to calibrator CSV file.
+        numeric (bool) : If `True`, signal columns will have floating point
+            type.  If `False`, signal columns will be string type using SI
+            units.
 
     For the remaining keyword arguments, see the `reduce_microdrop_dstat_data`
     function.
@@ -325,7 +328,8 @@ def microdrop_dstat_summary_table(df_md_dstat, calibrator_csv_path=None,
     if df_display.i.max() < 2:
         del df_display['i']
 
-    # Format signals using SI units.
-    df_display.loc[:, signal_columns] = (df_display[signal_columns]
-                                         .applymap(si.si_format))
+    if not numeric:
+        # Format signals using SI units.
+        df_display.loc[:, signal_columns] = (df_display[signal_columns]
+                                             .applymap(si.si_format))
     return df_display
