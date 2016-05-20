@@ -10,6 +10,7 @@ from microdrop.protocol import Protocol
 from path_helpers import path
 import dstat_interface as di
 import dstat_interface.analysis
+import numpy as np
 import pandas as pd
 import si_prefix as si
 
@@ -348,3 +349,65 @@ def microdrop_dstat_summary_table(df_md_dstat, calibrator_csv_path=None,
                                                     .format(v / unit_scale,
                                                             unit))
     return df_display
+
+
+def subtract_background_signal(df_dstat_summary, inplace=False):
+    '''
+    Subtract background from each signal.
+
+    Each row starting with `'background'` is considered a background.
+
+    Each background is matched to other rows based on the suffix of the
+    background index label.  For example, `'background-a'` will be matched to
+    all rows with an index label ending with `'-a'`.  Rows with no matching
+    suffix will be matched to the background row `'background'` if it exists,
+    or will remained unchanged if the background row `'background'` does not
+    exist.
+
+    Args
+    ----
+
+        df_dstat_summary (pandas.DataFrame) : Table with at least the column
+            `signal`.
+
+    Returns
+    -------
+
+        (pandas.DataFrame) : Table with same structure as input with respective
+            background subtracted from each corresponding signal.
+    '''
+    if not inplace:
+        df_dstat_summary = df_dstat_summary.copy()
+
+    index = df_dstat_summary.index
+
+    # Find mask of all rows with index value starting with `'background'`.
+    background_mask = (df_dstat_summary.index.str.startswith('background'))
+    # Find list of all distinct background index value suffixes.
+    background_suffixes = (index[background_mask].str.slice(len('background'))
+                           .unique())
+
+    # Find the mask all non-background rows that share a non-empty suffix with
+    # a background row.
+    non_empty_suffix = np.array([index.str.endswith(s) for s in
+                                 background_suffixes if s]).max(axis=0)
+
+    if '' in background_suffixes:
+        # Find mask for for rows corresponding to base `'background'` signal.
+        row_mask = ~non_empty_suffix & ~background_mask
+
+        # Subtract base background from corresponding rows.
+        df_dstat_summary.loc[row_mask, 'signal'] -=\
+            df_dstat_summary.ix['background'].signal
+
+    for s in background_suffixes:
+        if s:
+            # Find mask for for rows corresponding to `'background'` signal
+            # with (non-empty) suffix `s`.
+            row_mask = index.str.endswith(s) & ~background_mask
+
+            # Subtract background with `s` suffix from corresponding rows.
+            df_dstat_summary.loc[row_mask, 'signal'] -= \
+                df_dstat_summary.ix['background' + s].signal
+
+    return df_dstat_summary
