@@ -2,18 +2,16 @@ from collections import namedtuple
 from copy import deepcopy
 import cPickle as pickle
 import datetime as dt
+import os
 import re
-import time
 
 from microdrop.experiment_log import ExperimentLog
 from microdrop.protocol import Protocol
 from path_helpers import path
 import dstat_interface as di
 import dstat_interface.analysis
-import matplotlib.mlab as mlab
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
+import si_prefix as si
 
 
 ExperimentLogDir = namedtuple('ExperimentLogDir', ['log_dir', 'instrument_id'])
@@ -236,3 +234,98 @@ def reduce_microdrop_dstat_data(df_md_dstat, settling_period_s=2., bandwidth=1.)
 
     return di.analysis.reduce_dstat_data(df_md_dstat, groupby=groupby,
                                          summary_fields=summary_fields)
+
+
+def microdrop_dstat_summary_table(df_md_dstat, calibrator_csv_path=None,
+                                  **kwargs):
+    '''
+    Args
+    ----
+
+        df_md_dstat (pandas.DataFrame) : Microdrop DStat measurements in a
+            table with at least the columns `experiment_uuid`, `step_number`,
+            `attempt_number`, `target_hz`, `sample_frequency_hz`, `current_amps`,
+            and `time_s`.
+        calibrator_csv_path (str) : Path to calibrator CSV file.
+
+    For the remaining keyword arguments, see the `reduce_microdrop_dstat_data`
+    function.
+
+    Returns
+    -------
+
+        (pandas.DataFrame) : Summary dataframe matching each step label to the
+            corresponding reduced signal value.  If `calibrator_csv_path` is
+            specified, normalize signal to respective calibrator signal.
+
+    Examples
+    ========
+
+    Without calibrator:
+
+                    step_number  i signal   fft
+        step_label
+        background            1  1  47.2p  True
+        background            1  2  62.4p  True
+        test 1                2  1  48.7p  True
+        test 1                2  2  72.7p  True
+
+    With calibrator:
+
+                    i signal calibrator   fft normalized
+        step_label
+        background  1  47.2p      23.6p  True     200.0%
+        background  2  62.4p      23.6p  True     264.3%
+        test 1      1  48.7p      24.3p  True     200.4%
+        test 1      2  72.7p      24.3p  True     299.2%
+    '''
+    df_md_reduced = reduce_microdrop_dstat_data(df_md_dstat, **kwargs)
+    df_md_reduced['fft'] = (df_md_reduced.target_hz > 0
+                            if 'target_hz' in df_md_reduced
+                            else False)
+    df_display = (df_md_reduced[['step_label', 'step_number',
+                                 'attempt_number', 'signal', 'fft']]
+                  .set_index('step_label'))
+
+    if df_display.groupby([df_display.index.get_level_values('step_label'),
+                           'step_number'])['step_number'].count().max() < 2:
+         del df_display['step_number']
+
+    signal_columns = ['signal']
+    df_display.rename(columns={'attempt_number': 'i'}, inplace=True)
+
+    if calibrator_csv_path and os.path.isfile(calibrator_csv_path):
+        with open(calibrator_csv_path, 'r') as csv_file:
+            df_calibrator = pd.read_csv(csv_file, na_values=['nan'])
+        df_calibrator.drop_duplicates(subset=['step_label', 'attempt_number'],
+                                      inplace=True)
+        df_calibrator['fft'] = (df_calibrator.target_hz > 0
+                                if 'target_hz' in df_calibrator
+                                else False)
+
+        # Join experiment signal data with calibrator signal data.
+        df_display = (df_display
+                      .join(df_calibrator.set_index('step_label'),
+                            rsuffix='_calibrator', how='left')
+                      [['i', 'attempt_number', 'signal',
+                        'signal_calibrator', 'fft',
+                        'fft_calibrator']]).copy()
+        assert((df_display.fft == df_display.fft_calibrator).all())
+        del df_display['fft_calibrator']
+        df_display.rename(columns={'attempt_number': 'calib_i',
+                                   'signal_calibrator': 'calibrator'},
+                          inplace=True)
+        if df_display.calib_i.max() < 2:
+            del df_display['calib_i']
+        signal_columns += ['calibrator']
+        df_display['normalized'] = df_display.signal / df_display.calibrator
+        df_display.loc[:, 'normalized'] = (df_display.normalized
+                                           .map(lambda v:
+                                                '{:.1f}%'.format(100 * v)))
+    if df_display.i.max() < 2:
+        del df_display['i']
+
+    # Format signals using SI units.
+    df_display.loc[:, signal_columns] = (df_display[signal_columns]
+                                         .applymap(si.si_format))
+    return df_display
