@@ -237,7 +237,7 @@ def reduce_microdrop_dstat_data(df_md_dstat, settling_period_s=2., bandwidth=1.)
 
 
 def microdrop_dstat_summary_table(df_md_dstat, calibrator_csv_path=None,
-                                  numeric=False, **kwargs):
+                                  numeric=False, unit=None, **kwargs):
     '''
     Args
     ----
@@ -250,6 +250,9 @@ def microdrop_dstat_summary_table(df_md_dstat, calibrator_csv_path=None,
         numeric (bool) : If `True`, signal columns will have floating point
             type.  If `False`, signal columns will be string type using SI
             units.
+        unit (str) : Express signal values in terms of the specified SI unit
+            prefix.  Must be one of 'y', 'z', 'a', 'f', 'p', 'n', 'u', 'm',
+            'k', 'M', 'G', 'T', 'P', 'E', 'Z', or 'Y'.
 
     For the remaining keyword arguments, see the `reduce_microdrop_dstat_data`
     function.
@@ -282,6 +285,10 @@ def microdrop_dstat_summary_table(df_md_dstat, calibrator_csv_path=None,
         test 1      1  48.7p      24.3p  True     200.4%
         test 1      2  72.7p      24.3p  True     299.2%
     '''
+    if unit is not None and unit not in si.SI_PREFIX_UNITS:
+        raise KeyError('Unrecognized unit "{}".  The following SI units are '
+                       'supported: {}'.format(unit, si.SI_PREFIX_UNITS))
+
     df_md_reduced = reduce_microdrop_dstat_data(df_md_dstat, **kwargs)
     df_md_reduced['fft'] = (df_md_reduced.target_hz > 0
                             if 'target_hz' in df_md_reduced
@@ -329,7 +336,15 @@ def microdrop_dstat_summary_table(df_md_dstat, calibrator_csv_path=None,
         del df_display['i']
 
     if not numeric:
-        # Format signals using SI units.
-        df_display.loc[:, signal_columns] = (df_display[signal_columns]
-                                             .applymap(si.si_format))
+        if unit is None:
+            # Format signals using SI units.
+            df_display.loc[:, signal_columns] = (df_display[signal_columns]
+                                                 .applymap(si.si_format))
+        else:
+            # Convert unit to float scalar.
+            unit_scale = si.si_parse('1{}'.format(unit))
+            df_display.loc[:, signal_columns] = \
+                df_display[signal_columns].applymap(lambda v: '{:.01f}{}'
+                                                    .format(v / unit_scale,
+                                                            unit))
     return df_display
