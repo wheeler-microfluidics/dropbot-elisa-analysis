@@ -388,36 +388,48 @@ def subtract_background_signal(df_dstat_summary, inplace=False):
     '''
     if not inplace:
         df_dstat_summary = df_dstat_summary.copy()
+    if not df_dstat_summary.shape[0]:
+        return df_dstat_summary
 
-    index = df_dstat_summary.index
+    index = df_dstat_summary.index.str.lower()
 
     # Find mask of all rows with index value starting with `'background'`.
-    background_mask = (df_dstat_summary.index.str.startswith('background'))
+    background_mask = (index.str.startswith('background'))
+    if background_mask.max() < 1:
+        # No background steps.
+        return df_dstat_summary
+
     # Find list of all distinct background index value suffixes.
-    background_suffixes = (index[background_mask].str.slice(len('background'))
-                           .unique())
+    background_labels = index[background_mask].drop_duplicates()
+    background_prefixes = background_labels.str.slice(0, len('background'))
+    background_suffixes = background_labels.str.slice(len('background'))
 
     # Find the mask all non-background rows that share a non-empty suffix with
     # a background row.
-    non_empty_suffix = np.array([index.str.endswith(s) for s in
-                                 background_suffixes if s]).max(axis=0)
+    non_empty_suffix_masks = np.array([index.str.endswith(s.lower())
+                                       for s in background_suffixes if s])
+    if non_empty_suffix_masks.shape[0]:
+        # Use column-wise maximum of boolean non-empty suffix masks to `OR`
+        # together
+        non_empty_suffix = non_empty_suffix_masks.max(axis=0)
+    else:
+        non_empty_suffix = np.zeros(index.shape[0], dtype=bool)
 
     if '' in background_suffixes:
         # Find mask for for rows corresponding to base `'background'` signal.
         row_mask = ~non_empty_suffix & ~background_mask
 
+        i = index.tolist().index('background')
         # Subtract base background from corresponding rows.
-        df_dstat_summary.loc[row_mask, 'signal'] -=\
-            df_dstat_summary.ix['background'].signal
+        df_dstat_summary.loc[row_mask, 'signal'] -= df_dstat_summary.ix[i].signal
 
-    for s in background_suffixes:
-        if s:
+    for prefix_i, suffix_i in zip(background_prefixes, background_suffixes):
+        if suffix_i:
             # Find mask for for rows corresponding to `'background'` signal
-            # with (non-empty) suffix `s`.
-            row_mask = index.str.endswith(s) & ~background_mask
+            # with suffix `s`.
+            row_mask = index.str.endswith(suffix_i.lower()) & ~background_mask
 
+            i = index.tolist().index(prefix_i + suffix_i)
             # Subtract background with `s` suffix from corresponding rows.
-            df_dstat_summary.loc[row_mask, 'signal'] -= \
-                df_dstat_summary.ix['background' + s].signal
-
+            df_dstat_summary.loc[row_mask, 'signal'] -= df_dstat_summary.ix[i].signal
     return df_dstat_summary
