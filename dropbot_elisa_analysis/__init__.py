@@ -41,6 +41,7 @@ def combine_data_from_microdrop_logs(exp_log_paths):
     combined_data_df = pd.DataFrame()
 
     for log_dir, instrument_id in exp_log_paths:
+        error = False
         exp_id = str(log_dir.name)
         output_path = log_dir / path('wheelerlab.dropbot_dx_accessories')
 
@@ -56,7 +57,6 @@ def combine_data_from_microdrop_logs(exp_log_paths):
 
                 df = pd.DataFrame().from_csv(path=file_path, index_col=None)
                 if 'experiment_uuid' in df.columns and 'utc_timestamp' in df.columns:
-                    print '%s is a cached data file with the right columns' % file_path
                     df = df.set_index(['experiment_uuid', 'utc_timestamp'])
                     combined_data_df = combined_data_df.append(df)
                     cached_file_exists = True
@@ -107,6 +107,8 @@ def combine_data_from_microdrop_logs(exp_log_paths):
 
         experiment_df = pd.DataFrame()
         for file_path in log_dir.files('*Measure*.txt'):
+            if error:
+                continue
             df = di.analysis.dstat_to_frame(file_path)
             df.rename(columns={'name': 'step_label'}, inplace=True)
             df['experiment_uuid'] = log.uuid
@@ -122,7 +124,12 @@ def combine_data_from_microdrop_logs(exp_log_paths):
                 match = re.match(r'(?P<label>.*)-data.txt', file_path.name)
 
             label = match.group('label')
-            step_number = step_labels.index(label)
+            try:
+                step_number = step_labels.index(label)
+            except ValueError:
+                print 'Error scanning log %s. Label "%s" not found in protocol.' % (log_dir, label)
+                error = True
+                continue
 
             # get the uuid of the calibrator
             calibrator_file = output_path / 'calibrator.csv'
@@ -147,6 +154,9 @@ def combine_data_from_microdrop_logs(exp_log_paths):
             df['relative_humidity'] = relative_humidity[index]
 
             experiment_df = experiment_df.append(df)
+
+        if error:
+            continue
 
         try:
             metadata = deepcopy(log.metadata['wheelerlab.metadata_plugin'])
@@ -184,8 +194,8 @@ def combine_data_from_microdrop_logs(exp_log_paths):
             output_path.mkdir()
 
         experiment_df.to_csv(output_path / \
-             path('e[%s]-d[%s]-s[%s].csv' % (log.uuid, experiment_df['device_id'].values[0],
-             experiment_df['sample_id'].values[0])))
+             path('e[%s]-d[%s]-s[%s].csv' % (str(log.uuid)[:8], experiment_df['device_id'].values[0],
+             re.sub(r'[:/\\><\?]', '_', experiment_df['sample_id'].values[0]))))
 
         combined_data_df = combined_data_df.append(experiment_df)
     return combined_data_df
