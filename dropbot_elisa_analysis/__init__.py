@@ -247,16 +247,15 @@ def reduce_microdrop_dstat_data(df_md_dstat, settling_period_s=2., bandwidth=1.)
                                          summary_fields=summary_fields)
 
 
-def microdrop_dstat_summary_table(df_md_dstat, calibrator_csv_path=None,
+def microdrop_dstat_summary_table(df_md_reduced, calibrator_csv_path=None,
                                   numeric=False, unit=None, **kwargs):
     '''
     Args
     ----
 
-        df_md_dstat (pandas.DataFrame) : Microdrop DStat measurements in a
-            table with at least the columns `experiment_uuid`, `step_number`,
-            `attempt_number`, `target_hz`, `sample_frequency_hz`, `current_amps`,
-            and `time_s`.
+        df_md_reduced (pandas.DataFrame) : Reduced Microdrop DStat measurements
+            (see `reduce_microdrop_dstat_data`) in a table with at least the
+            columns `step_number`, `attempt_number`, `target_hz`, and `signal`.
         calibrator_csv_path (str) : Path to calibrator CSV file.
         numeric (bool) : If `True`, signal columns will have floating point
             type.  If `False`, signal columns will be string type using SI
@@ -300,7 +299,7 @@ def microdrop_dstat_summary_table(df_md_dstat, calibrator_csv_path=None,
         raise KeyError('Unrecognized unit "{}".  The following SI units are '
                        'supported: {}'.format(unit, si.SI_PREFIX_UNITS))
 
-    df_md_reduced = reduce_microdrop_dstat_data(df_md_dstat, **kwargs)
+    df_md_reduced = df_md_reduced.copy()
     df_md_reduced['fft'] = (df_md_reduced.target_hz > 0
                             if 'target_hz' in df_md_reduced
                             else False)
