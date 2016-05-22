@@ -238,8 +238,9 @@ def reduce_microdrop_dstat_data(df_md_dstat, settling_period_s=2., bandwidth=1.)
             `temperature_celsius`, `sample_frequency_hz`, `target_hz`,
             'calibrator_uuid', and `signal` (i.e., the aggregate signal value).
     '''
-    summary_fields = ['experiment_start', 'experiment_length_min', 'sample_id',
-                      'instrument_id', 'relative_humidity', 'temperature_celsius',
+    summary_fields = ['utc_timestamp', 'experiment_start',
+                      'experiment_length_min', 'sample_id', 'instrument_id',
+                      'relative_humidity', 'temperature_celsius',
                       'sample_frequency_hz', 'target_hz', 'calibrator_uuid']
     groupby = ['experiment_uuid', 'step_label', 'step_number', 'attempt_number']
 
