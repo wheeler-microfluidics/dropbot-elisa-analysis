@@ -234,13 +234,12 @@ def reduce_microdrop_dstat_data(df_md_dstat, settling_period_s=2., bandwidth=1.)
 
         (pd.DataFrame) : Table containing the columns `experiment_start`,
             `experiment_length_min`, `sample_id`, `experiment_uuid`,
-            `step_label`, `instrument_id`, `relative_humidity`,
+            `step_label`, `instrument_name`, `relative_humidity`,
             `temperature_celsius`, `sample_frequency_hz`, `target_hz`,
             'calibrator_uuid', and `signal` (i.e., the aggregate signal value).
     '''
-    summary_fields = ['utc_timestamp', 'experiment_start',
-                      'experiment_length_min', 'sample_id', 'instrument_id',
-                      'relative_humidity', 'temperature_celsius',
+    summary_fields = ['experiment_start', 'experiment_length_min', 'sample_id',
+                      'instrument_name', 'relative_humidity', 'temperature_celsius',
                       'sample_frequency_hz', 'target_hz', 'calibrator_uuid']
     groupby = ['experiment_uuid', 'step_label', 'step_number', 'attempt_number']
 
@@ -304,10 +303,8 @@ def microdrop_dstat_summary_table(df_md_reduced, calibrator_csv_path=None,
     df_md_reduced['fft'] = (df_md_reduced.target_hz > 0
                             if 'target_hz' in df_md_reduced
                             else False)
-
     df_display = (df_md_reduced[['step_label', 'step_number',
-                                 'attempt_number', 'signal', 'fft',
-                                 'utc_timestamp']]
+                                 'attempt_number', 'signal', 'fft']]
                   .set_index('step_label'))
 
     if df_display.groupby([df_display.index.get_level_values('step_label'),
