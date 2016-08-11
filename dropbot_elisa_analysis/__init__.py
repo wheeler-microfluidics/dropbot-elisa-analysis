@@ -2,6 +2,7 @@ from collections import namedtuple
 from copy import deepcopy
 import cPickle as pickle
 import datetime as dt
+import logging
 import os
 import re
 
@@ -13,6 +14,8 @@ import dstat_interface.analysis
 import numpy as np
 import pandas as pd
 import si_prefix as si
+
+logger = logging.getLogger(__name__)
 
 
 ExperimentLogDir = namedtuple('ExperimentLogDir', ['log_dir', 'instrument_id'])
@@ -201,7 +204,9 @@ def combine_data_from_microdrop_logs(exp_log_paths):
     return combined_data_df
 
 
-def reduce_microdrop_dstat_data(df_md_dstat, settling_period_s=2., bandwidth=1.):
+def reduce_microdrop_dstat_data(df_md_dstat, settling_period_s=2.,
+                                bandwidth=1., extra_summary_fields=None,
+                                verbose=False):
     '''
     Reduce measurements for each Microdrop DStat acquisition step in
     `df_md_dstat` to a single row with an aggregate signal value.
@@ -242,10 +247,38 @@ def reduce_microdrop_dstat_data(df_md_dstat, settling_period_s=2., bandwidth=1.)
                       'experiment_length_min', 'sample_id', 'instrument_id',
                       'relative_humidity', 'temperature_celsius',
                       'sample_frequency_hz', 'target_hz', 'calibrator_uuid']
+    if extra_summary_fields is None:
+        extra_summary_fields = []
     groupby = ['experiment_uuid', 'step_label', 'step_number', 'attempt_number']
 
-    return di.analysis.reduce_dstat_data(df_md_dstat, groupby=groupby,
-                                         summary_fields=summary_fields)
+    experiment_uuids = df_md_dstat.experiment_uuid.unique()
+    frames = []
+    for i, (experiment_uuid_i, df_i) in enumerate(df_md_dstat
+                                                  .groupby('experiment_uuid')):
+        if verbose:
+            instrument_id_i = df_i.instrument_id.iloc[0]
+            experiment_id_i = df_i.experiment_id.iloc[0]
+            print ('\rExperiment: {}/{} ({}-{}: {})        '
+                   .format(i + 1, experiment_uuids.shape[0],
+                           instrument_id_i, experiment_id_i,
+                           str(experiment_uuid_i)[:8])),
+        try:
+            extra_summary_fields_i = [f for f in extra_summary_fields
+                                      if f in df_i]
+            df_dstat_reduced_i = \
+                di.analysis.reduce_dstat_data(df_i, groupby=groupby,
+                                              summary_fields=summary_fields +
+                                              extra_summary_fields_i)
+        except Exception, e:
+            logger.warning('\n[warning] experiment %s %s: %s', i + 1,
+                           experiment_uuid_i[:8], e)
+        else:
+            frames.append(df_dstat_reduced_i)
+    df_dstat_reduced = pd.concat(frames).reset_index(drop=True)
+    df_dstat_reduced.sort_values(['experiment_uuid', 'utc_timestamp'],
+                                 inplace=True)
+
+    return df_dstat_reduced
 
 
 def microdrop_dstat_summary_table(df_md_reduced, calibrator_csv_path=None,
@@ -435,3 +468,72 @@ def subtract_background_signal(df_dstat_summary, inplace=False):
             # Subtract background with `s` suffix from corresponding rows.
             df_dstat_summary.loc[row_mask, 'signal'] -= df_dstat_summary.ix[i].signal
     return df_dstat_summary
+
+
+# Define list of columns to copy from background experiments.
+background_columns = (u'step_label', u'step_number', u'attempt_number',
+                      u'utc_timestamp', u'sample_id', u'instrument_id',
+                      u'relative_humidity', u'temperature_celsius', u'sample_frequency_hz',
+                      u'target_hz', u'calibrator_uuid', u'Measure 1', u'Measure 2',
+                      u'Measure 3', u'Measure 4', u'sample_first_id', u'sample_second_id',
+                      u'sample_third_id', u'sample_fourth_id', u'metadata_schema',
+                      u'signal', u'label')
+
+
+def merge_experiments(df_dstat_reduced, target_uuid, source_uuids):
+    '''
+    Args
+    ----
+
+        df_dstat_reduced (pandas.DataFrame) :  As returned by
+            `ea.reduce_microdrop_dstat_data`, one row per DStat acquisition.
+        target_uuid (str) : UUID of target experiment to merge source data into.
+        source_uuids (iterable) : UUIDs of source experiments to merge signal data from.
+
+    Returns
+    -------
+
+        (pandas.DataFrame) : Table containing new rows, gathered from source experiments.
+            Columns related to experiment metadata (e.g., UUID) contain data from *target*
+            experiment, not *source* experiments.
+    '''
+    # Get rows to merge from source experiments.
+    df_merge_rows = df_dstat_reduced.loc[df_dstat_reduced.experiment_uuid
+                                         .isin(list(source_uuids))].copy()
+
+    # Overwrite columns in source merge rows with data from target experiment.
+    experiment_i = df_dstat_reduced.loc[df_dstat_reduced.experiment_uuid ==
+                                        target_uuid].iloc[0]
+    overwrite_columns = [k for k in df_dstat_reduced.columns
+                         if k not in background_columns]
+    df_merge_rows.loc[:, overwrite_columns] = experiment_i[overwrite_columns].values
+    return df_merge_rows
+
+
+def merge_instrument_experiments(df_dstat_reduced, instrument_id, target_id, source_ids):
+    '''
+    Merge experiments based on instrument id and experiment ids instead of experiment
+    UUIDs.
+
+    Args
+    ----
+
+        df_dstat_reduced (pandas.DataFrame) :  As returned by
+            `ea.reduce_microdrop_dstat_data`, one row per DStat acquisition.
+        instrument_id (str) : Instrument identifier (e.g., `'MR-BOX1'`).
+        target_uuid (str) : ID of target experiment to merge source data into.
+        source_ids (iterable) : ID of source experiments to merge signal data from.
+
+    Returns
+    -------
+
+        (pandas.DataFrame) : Table containing new rows, gathered from source experiments.
+            Columns related to experiment metadata (e.g., UUID) contain data from *target*
+            experiment, not *source* experiments.
+    '''
+    df_instrument = df_dstat_reduced.loc[df_dstat_reduced.instrument_id == instrument_id]
+    target_uuid = df_instrument.loc[df_dstat_reduced.experiment_id == target_id,
+                                'experiment_uuid'].iloc[0]
+    source_uuids = df_instrument.loc[df_dstat_reduced.experiment_id.isin(source_ids),
+                                 'experiment_uuid'].unique()
+    return merge_experiments(df_dstat_reduced, target_uuid, source_uuids)
