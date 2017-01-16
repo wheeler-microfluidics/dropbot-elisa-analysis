@@ -1,0 +1,38 @@
+# source will be downloaded prior to filling in jinja templates
+# Example assumes that this folder has setup.py in it
+source:
+  git_url: ../
+
+package:
+  name: dropbot-elisa-analysis
+  version: {{ GIT_DESCRIBE_TAG[1:] }}
+
+build:
+  # If this is a new build for the same version, increment the build
+  # number. If you do not include this key, it defaults to 0.
+  number: {{ GIT_DESCRIBE_NUMBER }}
+
+requirements:
+  build:
+    - arrow
+    - dstat-interface-mrbox >=1.4
+    - microdrop >=2.0.post50
+    - pandas >=0.15
+    - path_helpers >=0.2
+    - paver
+    - python
+    - six
+
+  run:
+    - arrow
+    - dstat-interface-mrbox >=1.4
+    - microdrop >=2.0.post50
+    - pandas >=0.15
+    - path_helpers >=0.2
+    - paver
+    - python
+    - six
+
+about:
+  home: https://github.com/wheeler-microfluidics/dropbot-elisa-analysis
+  license: BSD
