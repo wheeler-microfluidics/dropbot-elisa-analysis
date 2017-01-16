@@ -9,8 +9,8 @@ import re
 from microdrop.experiment_log import ExperimentLog
 from microdrop.protocol import Protocol
 from path_helpers import path
-import dstat_interface as di
-import dstat_interface.analysis
+import dstat_interface_mrbox as di
+import dstat_interface_mrbox.analysis
 import numpy as np
 import pandas as pd
 import si_prefix as si
@@ -218,7 +218,7 @@ def reduce_microdrop_dstat_data(df_md_dstat, settling_period_s=2.,
     than 0), the aggregate signal corresponds to the integrated amplitude of
     the `current_amps` FFT within the bandwidth around target frequency.
 
-    See `dstat_interface.analysis.reduce_microdrop_dstat_data` for more
+    See `dstat_interface_mrbox.analysis.reduce_microdrop_dstat_data` for more
     details.
 
     Args

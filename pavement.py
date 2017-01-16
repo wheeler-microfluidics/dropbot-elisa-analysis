@@ -29,7 +29,7 @@ options(
                author=properties['author'],
                url=properties['url'],
                version=properties['version'],
-               install_requires=['arrow', 'dstat-interface>=1.3.post6',
+               install_requires=['arrow', 'dstat-interface-mrbox>=1.4',
                                  'matplotlib', 'microdrop>=2.0.post50',
                                  'numpy', 'pandas>=0.15', 'path-helpers>=0.2'],
                # Install data listed in `MANIFEST.in`
